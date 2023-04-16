@@ -1,20 +1,17 @@
 package uk.ac.bris.cs.scotlandyard.model;
 
+package uk.ac.bris.cs.scotlandyard.model;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.NotNull;
 import uk.ac.bris.cs.scotlandyard.model.Board.GameState;
 import uk.ac.bris.cs.scotlandyard.model.ScotlandYard.*;
 import uk.ac.bris.cs.scotlandyard.model.Piece.*;
+import uk.ac.bris.cs.scotlandyard.model.Move.*;
 
 import java.util.*;
 
 import javax.annotation.Nonnull;
-import javax.crypto.spec.PSource;
-
 import static com.google.common.collect.ImmutableList.*;
 //import static uk.ac.bris.cs.scotlandyard.model.ScotlandYard.Ticket;
 
@@ -55,6 +52,7 @@ public final class MyGameStateFactory implements Factory<GameState> {
 
 		private final ImmutableMap<Detective, Integer> detectiveLocations = null;
 		//private final ImmutableMap<Piece, ImmutableMap<Ticket, Integer>> tickets = null;
+
 
 		public MyGameState(GameSetup setup,
 						   Player mrX,
@@ -249,7 +247,7 @@ public final class MyGameStateFactory implements Factory<GameState> {
 		@Nonnull
 		@Override
 		public GameState advance(Move move) {
-			if (!moves.contains(move)) throw new IllegalArgumentException("Illegal move: " + move);
+			if(mrXTravelLog.size() > setup.moves.size() ) throw new IllegalArgumentException("End Game:"+move);
 			//whether the tickets are double move
 			Move.Visitor<Boolean> isDouble = new Move.Visitor<Boolean>() {
 				@Override
@@ -316,7 +314,7 @@ public final class MyGameStateFactory implements Factory<GameState> {
 			Ticket ticket1 = move.accept(visitTicket01);
 			Ticket ticket2 = move.accept(visitTicket02);
 			Player newMrx = new Player(MrX.MRX, mrX.tickets(), mrX.location());
-			List<Player> newDetective = new ArrayList<>(detectives);
+			List<Player> newDetectives = new ArrayList<>(detectives);
 			ImmutableList<LogEntry> newMrXTravelLog;
 			//implemented section
 			if (!moves.contains(move)) throw new IllegalArgumentException("Illegal move :" + move +"size" +remaining.size()
@@ -324,12 +322,15 @@ public final class MyGameStateFactory implements Factory<GameState> {
 					+"/n"+detectives.iterator().next().location()+moves.toString());//just a point
 
 			if (move.commencedBy().isDetective()) {
-				//newDetective = new ArrayList<>();
-				for (Player player : newDetective) {
+				newDetectives = new ArrayList<>();
+				for (Player player : detectives) {
 					if (player.piece() == move.commencedBy()) {
 						player=player.at(dest1);
-						player=player.use(ticket1);
+						player=player.use(ticket1);//生成一个新对象
+						newDetectives.add(player);
 						newMrx=newMrx.give(ticket1);
+					}else {
+						newDetectives.add(player);
 					}
 				}
 
@@ -341,18 +342,13 @@ public final class MyGameStateFactory implements Factory<GameState> {
 					newMrx = newMrx.at(dest2);
 					newMrx = newMrx.use(ticket1);
 					newMrx= newMrx.use(ticket2);
+					newMrx = newMrx.use(Ticket.DOUBLE);
 				}
 			}
 			var newRemaining = newRemaining(move);                                                                //update the remaining players
 			newMrXTravelLog = newMrXLog(move, ticket1, ticket2, dest1, dest2, isDoubleMove);                        //update the move of mrX
-			return new MyGameState(setup,newMrx,newRemaining,newMrXTravelLog, copyOf(newDetective));
+			return new MyGameState(setup,newMrx,newRemaining,newMrXTravelLog, copyOf(newDetectives));
 
-		}
-
-		@NotNull
-		@Override
-		public ImmutableSet<Move> getAvailableMove() {
-			return null;
 		}
 
 //		@NotNull
@@ -361,91 +357,86 @@ public final class MyGameStateFactory implements Factory<GameState> {
 //			return null;
 //		}
 
+
 		//implement newMrXLog and newRemaining. The newRemaining and the newMrXLog is for update the move of remaining players and mrX as stated.
 		private ImmutableSet<Piece> newRemaining(Move move) {
-			Set<Piece> updatedRemaining = new HashSet<>();
+			Set<Piece> updatednewRemaining = new HashSet<>();
 			//After mrX moves, add all the left detectives into the remaining
 			if (move.commencedBy().isMrX()) {
-				for(Player detective: detectives){
-					updatedRemaining.add(detective.piece());
+				for (Player detective : detectives) {
+					updatednewRemaining.add(detective.piece());
 				}
-				if (remaining.size()==1){
-					return ImmutableSet.of(MrX.MRX);
-				}
-				else {
-					//add those who still have tickets into remaining
-					remaining.forEach(piece -> {
-						Player player = Objects.requireNonNull(getPlayer(piece));
-						if (piece != move.commencedBy())
-						if (!player.has(Ticket.TAXI)) {
-							if (!player.has(Ticket.BUS)) {
-								player.has(Ticket.UNDERGROUND);
-							}
+				if (move.commencedBy().isDetective())
+					if (remaining.size() == 1) {
+						return ImmutableSet.of(MrX.MRX);
+					} else {
+						//add those who still have tickets into remaining
+						for (Piece piece : remaining) {
+							Player player = Object.requireNonNuull(getPlayers(piece));
+							if (piece != move.commencedBy())
+								if (!player.has(Ticket.TAXI)) {
+									if (!player.has(Ticket.BUS)) {
+										player.has(Ticket.UNDERGROUND);
+									}
+								}
+							updatednewRemaining.add(piece);
 						}
-						updatedRemaining.add(piece);
-
-					});
-				}
-				if (remaining.isEmpty()) {
+					}
+				if (updatednewRemaining.isEmpty()) {
 					if (mrXTravelLog.size() == setup.moves.size()) {
 						remaining = ImmutableSet.of();
-					}
-					else {
+					} else {
 						remaining = ImmutableSet.of(MrX.MRX);
-					}}
+					}
 
-
-			}
-
-
-			return ImmutableSet.copyOf(updatedRemaining);
-		}
-
-		private ImmutableList<LogEntry> newMrXLog(Move move, Ticket ticket1, Ticket ticket2, int dest1, int dest2, Boolean isDoubleMove) {
-			if(move.commencedBy()!= MrX.MRX) return mrXTravelLog;
-			List<LogEntry> updatedMrXLog = new ArrayList<>(mrXTravelLog);
-			if(!isDoubleMove){
-				if(setup.moves.get(updatedMrXLog.size())) {
-					updatedMrXLog.add(LogEntry.reveal(ticket1,dest1));
-				}else updatedMrXLog.add(LogEntry.hidden(ticket1));
-			}else{
-				if (setup.moves.get(updatedMrXLog.size())) {
-					updatedMrXLog.add(LogEntry.reveal(ticket1, dest1));
-				}else updatedMrXLog.add(LogEntry.hidden(ticket1));
-				if (setup.moves.get(updatedMrXLog.size()+1)){
-					updatedMrXLog.add(LogEntry.reveal(ticket2,dest2));
-				}else  updatedMrXLog.add(LogEntry.hidden(ticket2));
-			}
-			return copyOf(updatedMrXLog);
-		}
-
-		@Nonnull @Override public ImmutableSet<Piece> getWinner() {
-
-			Set<Piece> winnerSet = new HashSet<>();
-			var detectiveHaveTickets = false;
-			detectives.forEach(d -> winnerSet.add(d.piece()));
-
-			for (Player detective : detectives) {
-				// D win, Mrx have same location with D:
-				if (detective.location() == mrX.location()) {
-					return ImmutableSet.copyOf(winnerSet);
+					return ImmutableSet.copyOf(updatednewRemaining);
 				}
-			}
-			if (getOneAvailableMoves(mrX.piece()).isEmpty())
-				return ImmutableSet.copyOf(winnerSet);
-			for (Player d : detectives) {                                                                        //Mrx win, detectives doesn't have the ticket to move
-				for (Ticket ticket : Ticket.values()) {
-					if (d.has(ticket)) detectiveHaveTickets = true;
-				}
-			}
-			if (!detectiveHaveTickets) return ImmutableSet.of(mrX.piece());
-			if (mrXTravelLog.size() == setup.moves.size() && remaining.contains(MrX.MRX))                        //Mrx win ,and mrX has done his last turn
-				return ImmutableSet.of(mrX.piece());
-			if (setup.moves.isEmpty()) return ImmutableSet.of(MrX.MRX);
-//			if (moves.isEmpty() && remaining.contains(MrX.MRX)) return ImmutableSet.copyOf(winnerSet);
-//			if (moves.isEmpty() && (remaining.size() == detectives.size())) return ImmutableSet.of(mrX.piece());
-			return ImmutableSet.of();
-		}
 
-	}
+				private ImmutableList<LogEntry> newMrXLog (Move move, Ticket ticket1, Ticket ticket2,int dest1,
+				int dest2, Boolean isDoubleMove){
+					if (move.commencedBy() != MrX.MRX) return mrXTravelLog;
+					List<LogEntry> updatedMrXLog = new ArrayList<>(mrXTravelLog);
+					if (!isDoubleMove) {
+						if (setup.moves.get(updatedMrXLog.size())) {
+							updatedMrXLog.add(LogEntry.reveal(ticket1, dest1));
+						} else updatedMrXLog.add(LogEntry.hidden(ticket1));
+					} else {
+						if (setup.moves.get(updatedMrXLog.size())) {
+							updatedMrXLog.add(LogEntry.reveal(ticket1, dest1));
+						} else updatedMrXLog.add(LogEntry.hidden(ticket1));
+						if (setup.moves.get(updatedMrXLog.size() + 1)) {
+							updatedMrXLog.add(LogEntry.reveal(ticket2, dest2));
+						} else updatedMrXLog.add(LogEntry.hidden(ticket2));
+					}
+					return copyOf(updatedMrXLog);
+				}
+
+				@Nonnull @Override public ImmutableSet<Piece> getWinner () {
+					Set<Piece> winnerSet = new HashSet<>();
+					var detectiveHaveTickets = false;
+					detectives.forEach(d -> winnerSet.add(d.piece()));
+					var detectivesWin = false;
+					for (Player detective : detectives) {
+						// D win, Mrx have same location with D:
+						if (detective.location() == mrX.location()) {
+							return ImmutableSet.copyOf(winnerSet);
+						}
+					}
+					if (getOneAvailableMoves(mrX.piece()).isEmpty())
+						return ImmutableSet.copyOf(winnerSet);
+
+					for (Player d : detectives) {                                                                        //Mrx win, detectives doesn't have the ticket to move
+						if (d.location() == mrX.location()) detectivesWin = true;
+						if (d.has(Ticket.BUS) || d.has(Ticket.TAXI) || d.has(Ticket.UNDERGROUND)) {
+							detectiveHaveTickets = true;
+						}
+					}
+					if (detectivesWin) return ImmutableSet.copyOf(winnerSet);
+					if (!detectiveHaveTickets) return ImmutableSet.of(mrX.piece());
+					if (mrXTravelLog.size() == setup.moves.size() && remaining.contains(mrX.piece()))                        //Mrx win ,and mrX has done his last turn
+						//if (setup.moves.isEmpty()) return ImmutableSet.of(MrX.MRX);
+						return ImmutableSet.of(mrX.piece());
+				}
+				return ImmutableSet.of();
+			}
 }
